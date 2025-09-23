@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('assets/hop.ico', 'assets')],
     hiddenimports=['win32com.client','PySide6.QtCore','PySide6.QtGui','PySide6.QtWidgets'],
     hookspath=[],
     hooksconfig={},

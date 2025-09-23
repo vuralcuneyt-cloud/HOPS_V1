@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, QLineEdit, QInputDialog
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from core.installer import ensure_structure
 from core.shortcuts import create_all_shortcuts
 from core.database import init_db, reset_db, get_raw_data_count
@@ -376,7 +377,20 @@ def main():
 
 
     app = QApplication(sys.argv)
+    # Uygulama ikonu (PyInstaller altında da çalışacak şekilde)
+    def _asset_path(rel: str):
+        import sys as _sys
+        from pathlib import Path as _Path
+        if getattr(_sys, "_MEIPASS", None):
+            return _Path(_sys._MEIPASS) / rel
+        return _Path(__file__).resolve().parent / rel
+
+    icon_file = _asset_path("assets/hop.ico")
+    if icon_file.exists():
+        app.setWindowIcon(QIcon(str(icon_file)))
     window = MainWindow()
+    if icon_file.exists():
+        window.setWindowIcon(QIcon(str(icon_file)))
     window.show()
     sys.exit(app.exec())
 
