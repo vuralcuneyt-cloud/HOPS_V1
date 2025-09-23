@@ -33,6 +33,8 @@ def create_exe_shortcut():
 
     # EXE dosyasının yolu (PyInstaller çıkışı)
     exe_path = Path(__file__).resolve().parent.parent / "dist" / "HOPS_V1.exe"
+    # Icon yolu (varsa kullan)
+    icon_path = Path(__file__).resolve().parent.parent / "assets" / "hop.ico"
 
     if sys.platform.startswith("win"):
         try:
@@ -41,7 +43,7 @@ def create_exe_shortcut():
             shortcut = shell.CreateShortcut(str(shortcut_path))
             shortcut.TargetPath = str(exe_path)
             shortcut.WorkingDirectory = str(exe_path.parent)
-            shortcut.IconLocation = str(exe_path)
+            shortcut.IconLocation = str(icon_path) if icon_path.exists() else str(exe_path)
             shortcut.save()
             print(f"[OK] Exe kısayolu oluşturuldu: {shortcut_path}")
         except Exception as e:

@@ -9,7 +9,14 @@ def get_db_path() -> Path:
 
 def connect_db():
     db_path = get_db_path()
-    conn = sqlite3.connect(db_path)
+    # Fail fast if locked to avoid freezing the UI
+    conn = sqlite3.connect(db_path, timeout=1, check_same_thread=False)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=1000")
+    except Exception:
+        pass
     return conn
 
 def init_db():
@@ -39,6 +46,55 @@ def init_db():
     )
     """)
 
+    # Mevcut duplikatları temizle (raw_data: aynı original_name için en son kaydı tut)
+    try:
+        cur.execute(
+            """
+            WITH keep AS (
+                SELECT MAX(id) AS id FROM raw_data GROUP BY original_name
+            )
+            DELETE FROM raw_data
+            WHERE id NOT IN (SELECT id FROM keep)
+            """
+        )
+    except Exception:
+        # Eski SQLite sürümlerinde CTE desteklenmiyorsa sessiz geç
+        pass
+
+    # Benzersizlik: original_name için unique index (tekrarlı kayıtları önlemek için)
+    cur.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_data_original_name
+    ON raw_data(original_name)
+    """)
+
+    # design_pack duplikatlarını temizle (aynı sku, result, master_frame_code için en son kaydı tut)
+    try:
+        cur.execute(
+            """
+            WITH keep AS (
+                SELECT MAX(id) AS id
+                FROM design_pack
+                GROUP BY sku, result, master_frame_code
+            )
+            DELETE FROM design_pack
+            WHERE id NOT IN (SELECT id FROM keep)
+            """
+        )
+    except Exception:
+        pass
+
+    # Nearest tekrarlarını da engellemek için master_frame_code NULL/'' normalize et
+    try:
+        cur.execute("UPDATE design_pack SET master_frame_code = '' WHERE master_frame_code IS NULL")
+    except Exception:
+        pass
+
+    # Benzersizlik: sku+result düzeyinde unique index (master_frame_code yoksa tekrar oluşmasın)
+    cur.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_design_pack_unique_sr
+    ON design_pack(sku, result)
+    """)
+
     conn.commit()
     conn.close()
 
@@ -56,10 +112,18 @@ def insert_raw_data(original_name, sku, width, height, ratio, orientation, creat
 def insert_design_pack(sku, result, master_frame_code=None):
     conn = connect_db()
     cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO design_pack (sku, result, master_frame_code)
-        VALUES (?, ?, ?)
-    """, (sku, result, master_frame_code))
+    try:
+        cur.execute(
+            """
+            INSERT INTO design_pack (sku, result, master_frame_code)
+            VALUES (?, ?, ?)
+            ON CONFLICT(sku, result) DO NOTHING
+            """,
+            (sku, result, master_frame_code),
+        )
+    except sqlite3.IntegrityError:
+        # Son çare: sessizce yoksay
+        pass
     conn.commit()
     conn.close()
 
@@ -70,3 +134,46 @@ def fetch_all_raw_data(limit=100):
     rows = cur.fetchall()
     conn.close()
     return rows
+
+
+def original_name_exists(original_name: str) -> bool:
+    conn = connect_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM raw_data WHERE original_name = ? LIMIT 1", (original_name,))
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def get_raw_data_count() -> int:
+    conn = connect_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) FROM raw_data")
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        conn.close()
+
+
+def reset_db():
+    """
+    Tüm tablo verilerini temizler ve AUTOINCREMENT sayaçlarını sıfırlar.
+    """
+    conn = connect_db()
+    cur = conn.cursor()
+    try:
+        # Tabloları temizle
+        cur.execute("DELETE FROM raw_data")
+        cur.execute("DELETE FROM design_pack")
+
+        # AUTOINCREMENT sayaçlarını sıfırla (sqlite_sequence mevcutsa)
+        try:
+            cur.execute("DELETE FROM sqlite_sequence WHERE name IN ('raw_data','design_pack')")
+        except Exception:
+            pass
+
+        conn.commit()
+    finally:
+        conn.close()

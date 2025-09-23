@@ -1,18 +1,19 @@
 import sys
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, QLineEdit
+    QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, QLineEdit, QInputDialog
 )
 from PySide6.QtCore import Qt
 from core.installer import ensure_structure
 from core.shortcuts import create_all_shortcuts
-from core.database import init_db
+from core.database import init_db, reset_db, get_raw_data_count
 from core.analyzer import analyze_and_store_images
 from core.paths import get_base_path
 from PySide6.QtWidgets import QProgressBar
 from PySide6.QtCore import Qt
 from core.design_pack import process_design_pack
 from core.config import load_config, save_config
+from core.split_up import perform_split_up
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
                 background-color: #333;
             }
         """)
+        self.btn_settings.setFocusPolicy(Qt.NoFocus)
         self.btn_settings.clicked.connect(self.show_settings)
         header_layout.addWidget(self.btn_settings, alignment=Qt.AlignRight)
 
@@ -86,14 +88,21 @@ class MainWindow(QMainWindow):
 
         btn_dashboard = QPushButton("Dashboard")
         btn_dashboard.setStyleSheet(btn_style)
+        btn_dashboard.setFocusPolicy(Qt.NoFocus)
 
         btn_analyzer = QPushButton("Analyzer")
         btn_analyzer.setStyleSheet(btn_style)
+        btn_analyzer.setFocusPolicy(Qt.NoFocus)
         btn_analyzer.clicked.connect(self.run_analyzer)
 
+        btn_splitup = QPushButton("Split-Up")
+        btn_splitup.setStyleSheet(btn_style)
+        btn_splitup.setFocusPolicy(Qt.NoFocus)
+        btn_splitup.clicked.connect(self.run_split_up)
 
         sidebar_layout.addWidget(btn_dashboard)
         sidebar_layout.addWidget(btn_analyzer)
+        sidebar_layout.addWidget(btn_splitup)
         sidebar_layout.addStretch()
 
         self.center_content = QFrame()
@@ -162,15 +171,48 @@ class MainWindow(QMainWindow):
 
         btn_save = QPushButton("Kaydet")
         btn_save.clicked.connect(self.save_settings)
+        btn_save.setFocusPolicy(Qt.NoFocus)
 
         hbox.addWidget(lbl)
         hbox.addWidget(self.input_trim, 1)
         hbox.addWidget(btn_save)
 
+        # Reset Database ayrı satır
+        reset_row = QFrame()
+        reset_row.setStyleSheet("""
+            QLabel {
+                color: #eee;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #8b0000;
+                color: #fff;
+                padding: 6px 16px;
+                border: 1px solid #550000;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #a40000;
+            }
+        """)
+        hbox_reset = QHBoxLayout(reset_row)
+        hbox_reset.setContentsMargins(0, 0, 0, 0)
+        hbox_reset.setSpacing(15)
+
+        lbl_reset = QLabel("Reset Database:")
+        btn_reset_db = QPushButton("Reset Database")
+        btn_reset_db.clicked.connect(self.reset_database)
+        btn_reset_db.setFocusPolicy(Qt.NoFocus)
+
+        hbox_reset.addWidget(lbl_reset)
+        hbox_reset.addStretch()
+        hbox_reset.addWidget(btn_reset_db)
+
         self.saved_label = QLabel("")
         self.saved_label.setStyleSheet("color: #0f0; font-size: 12px;")
 
         vbox.addWidget(settings_row)
+        vbox.addWidget(reset_row)
         vbox.addWidget(self.saved_label)
 
         self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
@@ -185,6 +227,23 @@ class MainWindow(QMainWindow):
         save_config(self.config)
 
         self.saved_label.setText(f"✔ Trimming kaydedildi: %{trimming_value}")
+
+    def reset_database(self):
+        text, ok = QInputDialog.getText(
+            self,
+            "Reset Database",
+            "Geri alınamaz işlem. Onaylamak için 'confirm' yazın:",
+        )
+        if not ok:
+            return
+        if text.strip().lower() != "confirm":
+            self.saved_label.setText("⚠ Onay metni hatalı. İşlem iptal edildi.")
+            return
+        try:
+            reset_db()
+            self.saved_label.setText("✔ Veritabanı sıfırlandı.")
+        except Exception as e:
+            self.saved_label.setText(f"⚠ Veritabanı sıfırlanamadı: {e}")
 
     def run_analyzer(self):
         self.clear_center()
@@ -233,15 +292,81 @@ class MainWindow(QMainWindow):
             self.status_label.setText("⚠ İşlenecek görsel bulunamadı.")
             return
 
-        for i, f in enumerate(files, start=1):
-            analyze_and_store_images()
-            percent = int((i / total) * 100)
+        def progress_cb(i, tot, message):
+            percent = int((i / tot) * 100)
             self.progress.setValue(percent)
-            self.status_label.setText(f"{i}/{total} görsel işlendi...")
+            self.status_label.setText(message)
             QApplication.processEvents()
 
-        self.progress.setValue(100)
-        self.status_label.setText(f"✔ {total} görsel analiz edildi ve veritabanına kaydedildi.")
+        analyze_and_store_images(files=files, progress_cb=progress_cb)
+
+        # Analyzer bitti, şimdi Design Pack'i çalıştır
+        self.status_label.setText("Design Pack çalıştırılıyor...")
+        self.progress.setValue(0)
+        QApplication.processEvents()
+        trimming_value = int(self.config.get("trimming", 8))
+        try:
+            if get_raw_data_count() > 0:
+                def progress_cb_dp(i, tot, message):
+                    percent = int((i / tot) * 100) if tot else 100
+                    self.progress.setValue(percent)
+                    self.status_label.setText(message)
+                    QApplication.processEvents()
+
+                process_design_pack(trimming=trimming_value, progress_cb=progress_cb_dp)
+                self.progress.setValue(100)
+                self.status_label.setText("✔ Analyzer ve Design Pack tamamlandı.")
+            else:
+                self.status_label.setText("⚠ raw_data boş, Design Pack atlandı.")
+        except Exception as e:
+            self.status_label.setText(f"⚠ Design Pack çalıştırılamadı: {e}")
+
+    def run_split_up(self):
+        self.clear_center()
+
+        wrapper = QFrame()
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(20, 20, 20, 20)
+        vbox.setSpacing(10)
+
+        self.status_label = QLabel("Split-Up çalıştırılıyor...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        self.progress = QProgressBar()
+        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress.setFixedHeight(25)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444;
+                border-radius: 4px;
+                text-align: center;
+                color: #eee;
+                background-color: #111;
+            }
+            QProgressBar::chunk {
+                background-color: #0a0;
+            }
+        """)
+        self.progress.setValue(0)
+
+        vbox.addWidget(self.status_label)
+        vbox.addWidget(self.progress)
+
+        self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
+
+        def progress_cb(i, tot, message):
+            percent = int((i / tot) * 100) if tot else 100
+            self.progress.setValue(percent)
+            self.status_label.setText(message)
+            QApplication.processEvents()
+
+        try:
+            perform_split_up(progress_cb=progress_cb)
+            self.progress.setValue(100)
+            self.status_label.setText("✔ Split-Up tamamlandı.")
+        except Exception as e:
+            self.status_label.setText(f"⚠ Split-Up çalıştırılamadı: {e}")
 
 def main():
     base = ensure_structure()
