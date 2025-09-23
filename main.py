@@ -1,7 +1,7 @@
 import sys
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, QLineEdit, QInputDialog
+    QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, QLineEdit, QInputDialog, QTableWidget, QTableWidgetItem, QSizePolicy, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
@@ -18,6 +18,12 @@ from core.split_up import perform_split_up
 from core.run_design import run_design as design_process
 from core.exporter import perform_export
 from core.etsy_zip import perform_etsy_zip
+from core.design_process import run_design_process_check
+from PySide6.QtWidgets import QMenu
+from PySide6.QtGui import QKeySequence, QShortcut
+
+
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -40,7 +46,7 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(15, 0, 15, 0)
 
-        title = QLabel("HOPS_V1")
+        title = QLabel("Etsy - Bulk Product Management")
         title.setStyleSheet("font-size: 16px; font-weight: bold;")
         header_layout.addWidget(title, alignment=Qt.AlignLeft)
 
@@ -93,6 +99,7 @@ class MainWindow(QMainWindow):
         btn_dashboard = QPushButton("Dashboard")
         btn_dashboard.setStyleSheet(btn_style)
         btn_dashboard.setFocusPolicy(Qt.NoFocus)
+        btn_dashboard.clicked.connect(self.run_dashboard)
 
         btn_analyzer = QPushButton("Analyzer")
         btn_analyzer.setStyleSheet(btn_style)
@@ -124,6 +131,11 @@ class MainWindow(QMainWindow):
         btn_etsyz.setFocusPolicy(Qt.NoFocus)
         btn_etsyz.clicked.connect(self.run_etsy_zip)
 
+        btn_designproc = QPushButton("Check List")
+        btn_designproc.setStyleSheet(btn_style)
+        btn_designproc.setFocusPolicy(Qt.NoFocus)
+        btn_designproc.clicked.connect(self.run_design_process)
+
 
         sidebar_layout.addWidget(btn_dashboard)
         sidebar_layout.addWidget(btn_analyzer)
@@ -131,6 +143,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(btn_design)
         sidebar_layout.addWidget(btn_master)
         sidebar_layout.addWidget(btn_export)
+        sidebar_layout.addWidget(btn_designproc)
         sidebar_layout.addWidget(btn_etsyz)
         sidebar_layout.addStretch()
 
@@ -586,6 +599,190 @@ class MainWindow(QMainWindow):
             self.status_label.setText("✔ Etsy Zip tamamlandı.")
         except Exception as e:
             self.status_label.setText(f"⚠ Etsy Zip çalıştırılamadı: {e}")
+
+
+
+
+
+
+
+    def run_design_process(self):
+        self.clear_center()
+
+        # Ana kapsayıcı
+        wrapper = QFrame()
+        main_layout = QVBoxLayout(wrapper)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
+
+        # ---------- ÜST FRAME : Status + Progress ----------
+        top_frame = QFrame()
+        top_layout = QVBoxLayout(top_frame)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(5)
+
+        self.status_label = QLabel("DesignProc başlatıldı...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        self.progress = QProgressBar()
+        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress.setFixedHeight(25)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444;
+                border-radius: 4px;
+                text-align: center;
+                color: #eee;
+                background-color: #111;
+            }
+            QProgressBar::chunk {
+                background-color: #0a0;
+            }
+        """)
+        self.progress.setValue(0)
+
+        top_layout.addWidget(self.status_label)
+        top_layout.addWidget(self.progress)
+        main_layout.addWidget(top_frame)   # Üst frame sabit
+
+        # ---------- ALT FRAME : Tablo veya mesaj ----------
+        bottom_frame = QFrame()
+        bottom_layout = QVBoxLayout(bottom_frame)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(5)
+
+        main_layout.addWidget(bottom_frame, 1)  # Alt frame kalan alanı kaplasın
+
+        self.center_layout.addWidget(wrapper)
+
+        # ------------------ Progress Callback ------------------
+        def progress_cb(i, tot, msg):
+            percent = int((i / tot) * 100) if tot else 100
+            self.progress.setValue(percent)
+            self.status_label.setText(msg)
+            QApplication.processEvents()
+
+        # ------------------ İşlemi çalıştır ------------------
+        try:
+            report_path = run_design_process_check(progress_cb=progress_cb)
+            self.progress.setValue(100)
+            self.status_label.setText("✔ DesignProc tamamlandı. Eksikler tabloda listelendi.")
+
+            rows = []
+            try:
+                content = report_path.read_text(encoding="utf-8")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) == 2:
+                        rows.append((parts[0], parts[1]))
+            except Exception:
+                rows = []
+
+            if rows:
+                table = QTableWidget()
+                table.setColumnCount(2)
+                table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+                table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+                table.setSelectionBehavior(QAbstractItemView.SelectItems)
+                table.setContextMenuPolicy(Qt.CustomContextMenu)
+
+                table.setHorizontalHeaderLabels(["Design", "Missing File"])
+                table.setRowCount(len(rows))
+                for r, (sku, code) in enumerate(rows):
+                    table.setItem(r, 0, QTableWidgetItem(sku))
+                    table.setItem(r, 1, QTableWidgetItem(code))
+
+                table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+                table.setStyleSheet("""
+                    QTableWidget {
+                        gridline-color: #555;
+                        border: 1px solid #444;
+                        alternate-background-color: #2a2a2a;
+                        background-color: #1a1a1a;
+                        color: #eee;
+                    }
+                    QTableWidget::item {
+                        padding: 5px;
+                    }
+                    QHeaderView::section {
+                        background-color: #333;
+                        color: #fff;
+                        padding: 5px;
+                        border-bottom: 1px solid #555;
+                        border-right: 1px solid #555;
+                        font-weight: bold;
+                    }
+                    QHeaderView::section:last-child {
+                        border-right: none;
+                    }
+                """)
+
+
+                # ---- Kopyalama Özelliği Ek Başlangıç ----
+                def copy_table_contents():
+                    sel = table.selectedRanges()
+                    text = ""
+                    if sel:
+                        # Seçili alan varsa sadece onu kopyala
+                        for r in range(sel[0].topRow(), sel[0].bottomRow() + 1):
+                            row_data = []
+                            for c in range(sel[0].leftColumn(), sel[0].rightColumn() + 1):
+                                item = table.item(r, c)
+                                row_data.append(item.text() if item else "")
+                            text += "\t".join(row_data) + "\n"
+                    else:
+                        # Hiç seçim yoksa tüm tabloyu kopyala
+                        for r in range(table.rowCount()):
+                            row_data = []
+                            for c in range(table.columnCount()):
+                                item = table.item(r, c)
+                                row_data.append(item.text() if item else "")
+                            text += "\t".join(row_data) + "\n"
+                    QApplication.clipboard().setText(text)
+
+                def context_menu(point):
+                    menu = QMenu(table)
+                    act_copy = menu.addAction("Kopyala")
+                    act = menu.exec_(table.viewport().mapToGlobal(point))
+                    if act == act_copy:
+                        copy_table_contents()
+
+                table.customContextMenuRequested.connect(context_menu)
+
+                copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), table)
+                copy_shortcut.activated.connect(copy_table_contents)
+                # ---- Kopyalama Özelliği Ek Bitiş ----
+
+
+
+                bottom_layout.addWidget(table)
+            else:
+                ok_lbl = QLabel("Eksik dosya bulunamadı.")
+                ok_lbl.setStyleSheet("color: #0f0; font-size: 13px;")
+                bottom_layout.addWidget(ok_lbl)
+                bottom_layout.addStretch(1)
+
+        except Exception as e:
+            self.status_label.setText(f"⚠ DesignProc çalıştırılamadı: {e}")
+
+
+    def run_dashboard(self):
+        self.clear_center()
+        self.status_label.setText("Dashboard çalıştırılıyor...")
+        self.progress.setValue(0)
+        self.center_layout.addWidget(self.status_label)
+        self.center_layout.addWidget(self.progress)
+        self.center_layout.addStretch(1)
+
+
+
+
 
 def main():
     base = ensure_structure()
