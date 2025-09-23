@@ -774,11 +774,8 @@ class MainWindow(QMainWindow):
 
     def run_dashboard(self):
         self.clear_center()
-        self.status_label.setText("Dashboard çalıştırılıyor...")
-        self.progress.setValue(0)
-        self.center_layout.addWidget(self.status_label)
-        self.center_layout.addWidget(self.progress)
-        self.center_layout.addStretch(1)
+        self.status_label.setText("Dashboard ekranı tasarlanacak ...")
+        
 
 
 
