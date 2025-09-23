@@ -46,6 +46,30 @@ def init_db():
     )
     """)
 
+    # design_check tablosu (sku+result benzersiz)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS design_check (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sku TEXT,
+        result TEXT,
+        file_exists INTEGER,
+        checked_at TEXT,
+        UNIQUE(sku, result)
+    )
+    """)
+
+    # master_check tablosu (image_name benzersiz)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS master_check (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        image_name TEXT UNIQUE,
+        width INTEGER,
+        height INTEGER,
+        master_design TEXT,
+        checked_at TEXT
+    )
+    """)
+
     # Mevcut duplikatları temizle (raw_data: aynı original_name için en son kaydı tut)
     try:
         cur.execute(
@@ -164,13 +188,30 @@ def reset_db():
     conn = connect_db()
     cur = conn.cursor()
     try:
-        # Tabloları temizle
-        cur.execute("DELETE FROM raw_data")
-        cur.execute("DELETE FROM design_pack")
+        def table_exists(name: str) -> bool:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
+            return cur.fetchone() is not None
+
+        target_tables = [
+            'raw_data',
+            'design_pack',
+            'design_check',  # opsiyonel, yoksa atlanır
+            'master_check',  # opsiyonel, yoksa atlanır
+        ]
+
+        for t in target_tables:
+            if table_exists(t):
+                try:
+                    cur.execute(f"DELETE FROM {t}")
+                except Exception:
+                    pass
 
         # AUTOINCREMENT sayaçlarını sıfırla (sqlite_sequence mevcutsa)
         try:
-            cur.execute("DELETE FROM sqlite_sequence WHERE name IN ('raw_data','design_pack')")
+            existing = [t for t in target_tables if table_exists(t)]
+            if existing:
+                in_list = ",".join([f"'{t}'" for t in existing])
+                cur.execute(f"DELETE FROM sqlite_sequence WHERE name IN ({in_list})")
         except Exception:
             pass
 

@@ -15,6 +15,9 @@ from PySide6.QtCore import Qt
 from core.design_pack import process_design_pack
 from core.config import load_config, save_config
 from core.split_up import perform_split_up
+from core.run_design import run_design as design_process
+from core.exporter import perform_export
+from core.etsy_zip import perform_etsy_zip
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -100,10 +103,35 @@ class MainWindow(QMainWindow):
         btn_splitup.setStyleSheet(btn_style)
         btn_splitup.setFocusPolicy(Qt.NoFocus)
         btn_splitup.clicked.connect(self.run_split_up)
+        
+        btn_design = QPushButton("Design")
+        btn_design.setStyleSheet(btn_style)
+        btn_design.setFocusPolicy(Qt.NoFocus)
+        btn_design.clicked.connect(self.run_design)
+        
+        btn_master = QPushButton("Master")
+        btn_master.setStyleSheet(btn_style)
+        btn_master.setFocusPolicy(Qt.NoFocus)
+        btn_master.clicked.connect(self.run_master)
+
+        btn_export = QPushButton("Export")
+        btn_export.setStyleSheet(btn_style)
+        btn_export.setFocusPolicy(Qt.NoFocus)
+        btn_export.clicked.connect(self.run_export)
+
+        btn_etsyz = QPushButton("EtsyZ")
+        btn_etsyz.setStyleSheet(btn_style)
+        btn_etsyz.setFocusPolicy(Qt.NoFocus)
+        btn_etsyz.clicked.connect(self.run_etsy_zip)
+
 
         sidebar_layout.addWidget(btn_dashboard)
         sidebar_layout.addWidget(btn_analyzer)
         sidebar_layout.addWidget(btn_splitup)
+        sidebar_layout.addWidget(btn_design)
+        sidebar_layout.addWidget(btn_master)
+        sidebar_layout.addWidget(btn_export)
+        sidebar_layout.addWidget(btn_etsyz)
         sidebar_layout.addStretch()
 
         self.center_content = QFrame()
@@ -368,6 +396,196 @@ class MainWindow(QMainWindow):
             self.status_label.setText("✔ Split-Up tamamlandı.")
         except Exception as e:
             self.status_label.setText(f"⚠ Split-Up çalıştırılamadı: {e}")
+            
+    def run_design(self):
+        self.clear_center()
+
+        wrapper = QFrame()
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(20, 20, 20, 20)
+        vbox.setSpacing(10)
+
+        self.status_label = QLabel("Design işlemi başlatıldı...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        self.progress = QProgressBar()
+        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress.setFixedHeight(25)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444;
+                border-radius: 4px;
+                text-align: center;
+                color: #eee;
+                background-color: #111;
+            }
+            QProgressBar::chunk {
+                background-color: #0a0;
+            }
+        """)
+        self.progress.setValue(0)
+
+        vbox.addWidget(self.status_label)
+        vbox.addWidget(self.progress)
+        self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
+
+        # ARAYÜZ ELEMANLARI OLUŞTURULDUKTAN SONRA:
+        def progress_cb(i, tot, msg):
+            percent = int((i / tot) * 100) if tot else 100
+            self.progress.setValue(percent)
+            self.status_label.setText(msg)
+            QApplication.processEvents()
+
+        from core.run_design import run_design as design_process
+        design_process(progress_cb=progress_cb)
+        self.progress.setValue(100)
+        self.status_label.setText("✔ Design işlemi tamamlandı.")
+        
+    def run_master(self):
+        self.clear_center()
+
+        wrapper = QFrame()
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(20, 20, 20, 20)
+        vbox.setSpacing(10)
+
+        self.status_label = QLabel("Master işlemi başlatıldı...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        self.progress = QProgressBar()
+        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress.setFixedHeight(25)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444;
+                border-radius: 4px;
+                text-align: center;
+                color: #eee;
+                background-color: #111;
+            }
+            QProgressBar::chunk {
+                background-color: #0a0;
+            }
+        """)
+        self.progress.setValue(0)
+
+        vbox.addWidget(self.status_label)
+        vbox.addWidget(self.progress)
+        self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
+
+        def progress_cb(i, tot, msg):
+            percent = int((i / tot) * 100) if tot else 100
+            self.progress.setValue(percent)
+            self.status_label.setText(msg)
+            QApplication.processEvents()
+
+        from core.run_master import run_master_bulk_check, perform_master_moves
+        # 1) Bulk kontrol ve master_check tablosunu oluştur/güncelle
+        run_master_bulk_check(progress_cb=progress_cb)
+
+        # 2) Taşıma ve yeniden adlandırma
+        self.progress.setValue(0)
+        self.status_label.setText("Master: dosyalar taşınıyor...")
+        QApplication.processEvents()
+
+        perform_master_moves(progress_cb=progress_cb)
+
+        self.progress.setValue(100)
+        self.status_label.setText("✔ Master işlemi tamamlandı.")
+
+    def run_export(self):
+        self.clear_center()
+
+        wrapper = QFrame()
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(20, 20, 20, 20)
+        vbox.setSpacing(10)
+
+        self.status_label = QLabel("Export başlatıldı...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        self.progress = QProgressBar()
+        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress.setFixedHeight(25)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444;
+                border-radius: 4px;
+                text-align: center;
+                color: #eee;
+                background-color: #111;
+            }
+            QProgressBar::chunk {
+                background-color: #0a0;
+            }
+        """)
+        self.progress.setValue(0)
+
+        vbox.addWidget(self.status_label)
+        vbox.addWidget(self.progress)
+        self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
+
+        def progress_cb(i, tot, msg):
+            percent = int((i / tot) * 100) if tot else 100
+            self.progress.setValue(percent)
+            self.status_label.setText(msg)
+            QApplication.processEvents()
+
+        try:
+            perform_export(progress_cb=progress_cb)
+            self.progress.setValue(100)
+            self.status_label.setText("✔ Export tamamlandı.")
+        except Exception as e:
+            self.status_label.setText(f"⚠ Export çalıştırılamadı: {e}")
+
+    def run_etsy_zip(self):
+        self.clear_center()
+
+        wrapper = QFrame()
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(20, 20, 20, 20)
+        vbox.setSpacing(10)
+
+        self.status_label = QLabel("Etsy Zip başlatıldı...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        self.progress = QProgressBar()
+        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress.setFixedHeight(25)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444;
+                border-radius: 4px;
+                text-align: center;
+                color: #eee;
+                background-color: #111;
+            }
+            QProgressBar::chunk {
+                background-color: #0a0;
+            }
+        """)
+        self.progress.setValue(0)
+
+        vbox.addWidget(self.status_label)
+        vbox.addWidget(self.progress)
+        self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
+
+        def progress_cb(i, tot, msg):
+            percent = int((i / tot) * 100) if tot else 100
+            self.progress.setValue(percent)
+            self.status_label.setText(msg)
+            QApplication.processEvents()
+
+        try:
+            perform_etsy_zip(progress_cb=progress_cb)
+            self.progress.setValue(100)
+            self.status_label.setText("✔ Etsy Zip tamamlandı.")
+        except Exception as e:
+            self.status_label.setText(f"⚠ Etsy Zip çalıştırılamadı: {e}")
 
 def main():
     base = ensure_structure()

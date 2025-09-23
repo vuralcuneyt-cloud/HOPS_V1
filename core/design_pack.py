@@ -46,7 +46,10 @@ def process_design_pack(trimming=8, progress_cb=None):
                 h_folder, h_val = list(folders.items())[0]
                 w_folder, w_val = list(folders.items())[1]
 
-                if abs(height - h_val) < abs(width - w_val):
+                img_ratio = width / height
+                target_ratio = w_val / h_val  # örn: 24/36
+
+                if img_ratio < target_ratio:
                     result_path = f"{name}\\{h_folder}"
                 else:
                     result_path = f"{name}\\{w_folder}"
