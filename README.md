@@ -1,193 +1,153 @@
 # HOPS_V1
 
-Etsy dükkanları için toplu ürün hazırlama süreçlerini otomatikleştirmek üzere geliştirilmiş PySide6 tabanlı bir masaüstü uygulaması. Görsel analizinden zip paketlerinin oluşturulmasına kadar uzanan uçtan uca iş akışıyla yüksek hacimli poster/print üretimini standartlaştırır.
+HOPS_V1 is a PySide6 desktop application that industrialises the preparation of Etsy poster and print listings. It automates every stage of the artwork pipeline – from analysing source imagery and assigning SKUs to producing zipped delivery packages – while storing operational state in SQLite so high-volume shops can resume work at any step without losing context.【F:main.py†L1-L847】【F:core/database.py†L1-L205】
 
-## İçindekiler
-- [Genel Bakış](#genel-bakış)
-- [Temel Özellikler](#temel-özellikler)
-- [Sistem Gereksinimleri](#sistem-gereksinimleri)
-- [Kurulum](#kurulum)
-- [Proje Yapısı](#proje-yapısı)
-- [Uygulamayı Çalıştırma](#uygulamayı-çalıştırma)
-- [İşlevsel Modüller](#işlevsel-modüller)
-- [Veritabanı ve Raporlama](#veritabanı-ve-raporlama)
-- [Konfigürasyon](#konfigürasyon)
-- [Önerilen İş Akışı](#önerilen-iş-akışı)
-- [Sorun Giderme](#sorun-giderme)
-- [Geliştirici Notları](#geliştirici-notları)
-- [Lisans](#lisans)
+## Table of Contents
+- [Project Overview](#project-overview)
+- [Key Features](#key-features)
+- [System Requirements](#system-requirements)
+- [Repository Layout](#repository-layout)
+- [Runtime Workspace Structure](#runtime-workspace-structure)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Using the Application](#using-the-application)
+  - [Graphical Workflow](#graphical-workflow)
+  - [Operational Checklist](#operational-checklist)
+- [Database Model](#database-model)
+- [Packaging and Distribution](#packaging-and-distribution)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Genel Bakış
-Uygulama, çalışma dizini olarak kullanıcının ana klasöründe otomatik oluşturulan `~/HOPS_V1` (Windows'ta `C:\Users\<kullanıcı>\HOPS_V1`) ağacını kullanır. `main.py` içindeki `MainWindow` sınıfı tek pencereli bir yönetim paneli sağlar; sol taraftaki menü ile her adımın ayrı ayrı tetiklenmesine izin verirken üstteki "Settings" butonu trimming yüzdesi ve veritabanı sıfırlama gibi yapılandırmaları içerir.
+## Project Overview
+The application boots by provisioning the Etsy production workspace inside the current user's home directory, creates desktop shortcuts, initialises the SQLite database, and then opens a single-window control panel tailored to batch production work.【F:main.py†L8-L844】【F:core/installer.py†L1-L43】【F:core/shortcuts.py†L1-L53】 Each action button in the sidebar triggers a specialised automation module, allowing operators to advance the workflow step-by-step or re-run individual phases as needed.【F:main.py†L99-L160】【F:core/analyzer.py†L1-L58】【F:core/design_pack.py†L1-L66】
 
-Arka planda tüm operasyonlar SQLite veritabanı (`99_Logs_Reports/hops_v1.db`) ve belirli klasör yapıları üzerinden gerçekleştirilir. Her modül isteğe bağlı ilerleme geri çağrıları (progress callback) alarak PySide6 progress bar bileşenlerini besler.
+## Key Features
+- **Deterministic workspace provisioning:** `ensure_structure()` creates the complete folder hierarchy (data intake, design staging, master outputs, export targets, zip destination, and logs) under `~/HOPS_V1`, marking the log folder hidden on Windows for cleanliness.【F:core/paths.py†L1-L9】【F:core/installer.py†L1-L43】
+- **Image ingestion with SKU assignment:** The Analyzer reads every file under `0_Data`, skips duplicates, calculates resolution/orientation, issues sequential `HOPS_########` SKUs, and persists records in `raw_data` with timestamps.【F:core/analyzer.py†L1-L58】【F:core/database.py†L19-L120】
+- **Ratio-aware design packing:** Vertical assets are matched against configurable ratio tolerances, mapped to portrait sub-folders, and enriched with master frame codes; near-misses are labelled `Nearest_*` for manual intervention.【F:core/design_pack.py†L1-L66】
+- **Orientation-driven file splitting:** Assets are renamed with their SKU, then routed to landscape, nearest, or main portrait queues based on database orientation and ratio classification.【F:core/split_up.py†L1-L104】
+- **Design distribution & QC:** Approved files are copied into every expected ratio directory, while nearest results land in `Unmatched`. After the move, `design_check` verifies that required design files exist on disk.【F:core/run_design.py†L1-L64】
+- **Mastering automation:** Bulk masters are fingerprinted to infer their intended ratio code, recorded in `master_check`, and moved/renamed into the structured master library accordingly.【F:core/run_master.py†L1-L112】
+- **Export orchestration:** Finished deliverables are sorted into `5_Etsy/<SKU>/` folders by parsing master filenames, ensuring idempotent moves for both imagery and PDFs.【F:core/exporter.py†L1-L56】
+- **Zip packaging for Etsy:** Each SKU directory is zipped into `6_Etsy_Zip/<SKU>.zip`, replacing older archives to keep listings ready for upload.【F:core/etsy_zip.py†L1-L36】
+- **Fulfilment checklist:** The checklist cross-references expected master frame codes with exported assets, skipping already zipped SKUs, and writes gaps to `99_Logs_Reports/missing_files.txt` for action.【F:core/design_process.py†L1-L78】
+- **Desktop shortcuts:** Optional helpers drop shortcuts to the workspace and packaged executable on the desktop (Windows `.lnk` or POSIX `.desktop` files).【F:core/shortcuts.py†L1-L53】
 
-## Temel Özellikler
-- **Görsel Analizi:** `core/analyzer.py` dosyasındaki `analyze_and_store_images` fonksiyonu `0_Data` klasöründeki görselleri tarayarak oran, yön ve benzersiz SKU numaralarını hesaplar.
-- **Design Pack Sınıflandırması:** `core/design_pack.py`, trimming toleransına göre görselleri ön tanımlı oran klasörlerine yerleştirir ve master çerçeve kodları üretir.
-- **Akıllı Dosya Taşıma:** `core/split_up.py`, oryantasyon ve `Nearest` etiketi bilgilerini kullanarak görselleri `1_Main`, `2_Design/1_Landscape` veya `2_Design/2_Nearest` klasörlerine taşır.
-- **Master Üretimi:** `core/run_master.py`, `3_Master/1_Bulk` içindeki dosyalara boyut bazlı master kodu atar ve uygun `3_Master/0_Sizes/...` alt klasörlerine taşır.
-- **Etsy İçin Dışa Aktarım:** `core/exporter.py` dosyası `4_Export/Bulk` içeriğini SKU bazlı klasörlere taşır; `core/etsy_zip.py` her SKU klasörünü zip'e dönüştürür.
-- **Kontrol Listeleri:** `core/design_process.py`, `5_Etsy` klasöründe eksik master dosyaları raporlayarak `99_Logs_Reports/missing_files.txt` dosyasını üretir.
-- **Kısayollar:** `core/shortcuts.py`, masaüstünde proje klasörü ve paketlenmiş uygulama için kısayol oluşturur.
+## System Requirements
+- Python 3.11 – 3.13.【F:pyproject.toml†L1-L19】
+- PySide6 for the GUI, Pillow for image metadata, and pywin32 for Windows shortcut integration (installed automatically via Poetry).【F:pyproject.toml†L10-L28】
+- Optional: PyInstaller for generating distributable executables (bundled as a development dependency).【F:pyproject.toml†L22-L28】
 
-## Sistem Gereksinimleri
-- Python 3.11–3.13
-- [Poetry](https://python-poetry.org/) (bağımlılık yönetimi için önerilir)
-- Çapraz platform destekli; PyInstaller paketi Windows yürütülebiliri üretmek üzere yapılandırılmıştır.
-- Windows ortamında kısayol oluşturmak için `pywin32`; görüntü işlemleri için `Pillow`; arayüz için `PySide6` gereklidir (tümü `pyproject.toml` içinde tanımlıdır).
-
-## Kurulum
-1. **Depoyu klonlayın**
-   ```bash
-   git clone <repo_url>
-   cd HOPS_V1
-   ```
-2. **Bağımlılıkları yükleyin** (Poetry önerilir)
-   ```bash
-   poetry install
-   ```
-   Alternatif olarak sanal ortam kurup `pip install -r` yerine aşağıdaki komutu kullanabilirsiniz:
-   ```bash
-   pip install pyside6 pillow pywin32
-   ```
-3. **İlk çalıştırma** sırasında `ensure_structure()` fonksiyonu kullanıcı dizininde tüm çalışma klasörlerini oluşturur. Windows'ta `99_Logs_Reports` klasörü gizli olarak işaretlenir.
-
-## Proje Yapısı
-Kaynak deposu:
+## Repository Layout
 ```
 HOPS_V1/
-├── assets/            # Uygulama simgesi (hop.ico)
-├── build/             # PyInstaller geçici çıktıları
-├── core/              # İş mantığı modülleri
-├── dist/              # Paketlenmiş uygulama çıkışı (oluşturulduğunda)
-├── main.py            # PySide6 arayüzü ve giriş noktası
-├── pyproject.toml     # Bağımlılıklar ve yapı ayarları
-└── HOPS_V1.spec       # PyInstaller yapı betiği
+├── assets/            # Application icons and static assets
+├── build/             # Intermediate PyInstaller build artefacts
+├── core/              # Domain logic modules (analysis, packing, export, etc.)
+├── dist/              # PyInstaller output when built
+├── main.py            # PySide6 entry point and UI wiring
+├── pyproject.toml     # Poetry project configuration and dependencies
+└── HOPS_V1.spec       # PyInstaller build recipe
 ```
 
-Çalışma dizini (`~/HOPS_V1`) ilk açılışta aşağıdaki gibi hazırlanır:
+## Runtime Workspace Structure
+The first launch scaffolds the production workspace in the user's home directory:
 ```
 ~/HOPS_V1/
-├── 0_Data/                       # Ham görsellerin bırakıldığı klasör
-├── 1_Main/                       # Tasarım öncesi işlenecek görseller
+├── 0_Data/                        # Drop incoming artwork here
+├── 1_Main/                        # Queue for portrait-ready assets
 ├── 2_Design/
 │   ├── 0_Portrait/
-│   │   ├── Ratio/Ratio_24x36/{H_36,W_24}/
-│   │   ├── Ratio/Ratio_18x24/{H_24,W_18}/
-│   │   ├── Ratio/Ratio_24x30/{H_30,W_24}/
-│   │   ├── Ratio/Ratio_11x14/{H_14,W_11}/
-│   │   ├── Ratio/Ratio_A_Series/{H_33.110,W_23.386}/
+│   │   ├── Ratio/Ratio_24x36/{W_24,H_36}/
+│   │   ├── Ratio/Ratio_18x24/{W_18,H_24}/
+│   │   ├── Ratio/Ratio_24x30/{W_24,H_30}/
+│   │   ├── Ratio/Ratio_11x14/{W_11,H_14}/
+│   │   ├── Ratio/Ratio_A_Series/{W_23.386,H_33.110}/
 │   │   └── Unmatched/
 │   ├── 1_Landscape/
 │   └── 2_Nearest/
-├── 3_Master/{0_Sizes,1_Bulk}/    # Master görsel alanları
+├── 3_Master/{0_Sizes/Ratio/*,1_Bulk}/
 ├── 4_Export/{Bulk,Unmatched}/
 ├── 5_Etsy/
 ├── 6_Etsy_Zip/
 └── 99_Logs_Reports/
-    ├── config.json               # Trimming ayarları
-    └── hops_v1.db                # SQLite veritabanı
+    ├── config.json
+    └── hops_v1.db
 ```
+This tree mirrors the structure produced by `ensure_structure()` and is used by every workflow module when reading or writing files.【F:core/installer.py†L16-L43】
 
-## Uygulamayı Çalıştırma
-### Geliştirme modunda
-```bash
-poetry run python main.py
-```
-Uygulama başlarken dizin yapısını ve veritabanını kurar, ardından masaüstünde klasör/EXE kısayolları oluşturmayı dener.
-
-### PyInstaller ile derleme
-1. Simgeyi `assets/hop.ico` içine yerleştirin.
-2. Aşağıdaki komutla tek dosyalı Windows yürütülebiliri üretin:
+## Installation
+1. **Clone the repository**
    ```bash
-   poetry run pyinstaller --noconfirm HOPS_V1.spec
+   git clone <repo_url>
+   cd HOPS_V1
    ```
-3. Paketlenmiş uygulama `dist/HOPS_V1/` altında oluşur.
+2. **Install dependencies with Poetry**
+   ```bash
+   poetry install
+   ```
+   Alternatively, create a virtual environment and install the runtime stack manually:
+   ```bash
+   pip install pyside6 pillow pywin32
+   ```
+3. **Launch the application in development mode**
+   ```bash
+   poetry run python main.py
+   ```
+   The first start provisions the workspace, creates shortcuts, initialises the database, and opens the control panel.【F:main.py†L8-L844】【F:core/installer.py†L16-L43】【F:core/database.py†L19-L205】
 
-## İşlevsel Modüller
-Aşağıdaki başlıklar, sol menüdeki butonların tetiklediği ardıl işlemleri özetler:
+## Configuration
+- Trimming tolerance (ratio matching window) is stored in `99_Logs_Reports/config.json`. Use the Settings panel to update the integer percentage or edit the file directly for scripted adjustments.【F:core/config.py†L1-L16】【F:main.py†L188-L305】
+- The Settings view also exposes a guarded database reset that wipes operational tables after the operator types `confirm`. Use this when you need to restart the workflow from a clean slate.【F:core/database.py†L121-L205】【F:main.py†L236-L303】
 
-### Settings
-- `config.json` içindeki `trimming` yüzdesini günceller (varsayılan `%8`).
-- Veritabanı sıfırlama butonu, "confirm" kelimesiyle onay aldıktan sonra tüm tabloları temizler.
+## Using the Application
+### Graphical Workflow
+Each sidebar action runs a discrete module. The UI manages progress indicators and automatically chains dependent steps where appropriate.【F:main.py†L304-L379】 The recommended order is:
+1. **Analyzer** – ingest source imagery, assign SKUs, and queue Design Pack automatically.【F:main.py†L304-L379】【F:core/analyzer.py†L1-L58】
+2. **Split-Up** – rename assets with their SKU and route them to orientation-specific staging folders.【F:main.py†L380-L420】【F:core/split_up.py†L1-L104】
+3. **Design** – duplicate approved portraits into every required ratio folder and verify the design inventory.【F:main.py†L421-L478】【F:core/run_design.py†L1-L64】
+4. **Master** – fingerprint bulk master files, update the `master_check` table, and relocate them into the ratio-specific master library.【F:main.py†L479-L563】【F:core/run_master.py†L1-L112】
+5. **Export** – stage final deliverables under `5_Etsy/<SKU>/` with deterministic overwrites.【F:main.py†L564-L615】【F:core/exporter.py†L1-L56】
+6. **Check List** – audit exported SKUs against expected master codes and produce a `missing_files.txt` exception report.【F:main.py†L616-L704】【F:core/design_process.py†L1-L78】
+7. **EtsyZ** – compress each SKU directory into upload-ready zip archives.【F:main.py†L705-L771】【F:core/etsy_zip.py†L1-L36】
 
-### Analyzer
-1. `0_Data` klasöründeki tüm dosyaları tarar.
-2. `Pillow` ile genişlik/yükseklik ve oryantasyon bilgilerini çıkarır.
-3. Her görsel için `HOPS_` ile başlayan artan SKU oluşturur ve `raw_data` tablosuna kaydeder.
-4. Duplikat `original_name` tespit edilirse kayıt atlanır.
+Every backend function accepts an optional `progress_cb(index, total, message)` so that the UI (or alternative front-ends) can surface granular progress updates without duplicating business logic.【F:core/analyzer.py†L19-L58】【F:core/design_pack.py†L27-L64】【F:core/split_up.py†L32-L104】【F:core/run_master.py†L37-L112】【F:core/exporter.py†L18-L56】【F:core/etsy_zip.py†L12-L32】【F:core/design_process.py†L41-L70】
 
-### Design Pack
-- `raw_data` içindeki dikey görselleri trimming toleransına göre oran klasörlerine eşler.
-- Oran eşleşirse ilgili klasör yolu (`Ratio_24x36\H_36` vb.) ve master çerçeve kodu (`HOPS_xxx_R24x36_300DPI_sRGB`) `design_pack` tablosuna eklenir.
-- Hiçbir oran eşleşmezse en yakın oran `Nearest_...` etiketiyle kaydedilir.
+### Operational Checklist
+- Drop fresh imagery into `~/HOPS_V1/0_Data/`.
+- Run **Analyzer** to register assets and compute ratios (this also triggers **Design Pack** automatically from the Analyzer screen).
+- Proceed through **Split-Up**, **Design**, **Master**, and **Export** when your creative team finishes each stage.
+- Use **Check List** to identify missing masters before zipping.
+- Execute **EtsyZ** to generate uploadable archives. SKUs that already have a zip file are skipped during the checklist, keeping the report focused on unshipped work.【F:core/design_process.py†L41-L70】
 
-### Split-Up
-- `0_Data` içindeki dosyaları, `raw_data` tablosundaki SKU bilgisiyle yeniden adlandırır.
-- Yatay ve kare görseller `2_Design/1_Landscape` klasörüne; `Nearest` etiketli SKU'lar `2_Design/2_Nearest` klasörüne; kalan dikey görseller `1_Main` klasörüne taşınır.
+## Database Model
+All operational state lives in `99_Logs_Reports/hops_v1.db`. Tables are created automatically with indexes that prevent duplicate ingestion and maintain unique design-pack combinations.【F:core/database.py†L19-L120】
+- `raw_data`: image metadata captured during analysis (original name, SKU, dimensions, orientation, created timestamp).【F:core/database.py†L26-L52】
+- `design_pack`: ratio matches and generated master frame codes with a uniqueness constraint on `(sku, result)`.【F:core/database.py†L54-L98】
+- `design_check`: verification ledger that records whether required design files are present on disk.【F:core/database.py†L60-L89】【F:core/design_check.py†L1-L44】
+- `master_check`: catalogue of inspected master assets and their inferred master design codes.【F:core/database.py†L90-L120】【F:core/run_master.py†L37-L84】
+Resetting the database clears these tables and resets autoincrement counters so SKUs and reports remain tidy.【F:core/database.py†L121-L205】
 
-### Design
-- `1_Main` klasöründeki dosyaları alır, `design_pack` tablosunda listelenen oran klasörlerine kopyalar.
-- `Nearest` etiketli görseller `2_Design/0_Portrait/Unmatched` klasörüne taşınır.
-- İşlem sonunda `design_check` tablosunu güncellemek üzere `check_design_images()` çalıştırılır.
+## Packaging and Distribution
+- Run the GUI locally with Poetry: `poetry run python main.py`.【F:main.py†L821-L844】
+- Produce a Windows executable with PyInstaller using the supplied spec file:
+  ```bash
+  poetry run pyinstaller --noconfirm HOPS_V1.spec
+  ```
+  The packaged app emits into `dist/HOPS_V1/`, which the shortcut helper references when creating desktop links.【F:pyproject.toml†L22-L28】【F:core/shortcuts.py†L24-L52】
 
-### Master
-1. `3_Master/1_Bulk` içindeki görsellerin boyutlarını okuyarak `master_check` tablosunu günceller (`run_master_bulk_check`).
-2. Boyutlara göre master kodu (`R18x24`, `R11x14`, `RA1`, `R24x36`, `R24x30`) atar.
-3. `perform_master_moves` fonksiyonu dosyaları ilgili `3_Master/0_Sizes/Ratio/...` klasörlerine taşır ve dosya adını master koduyla değiştirir.
+## Troubleshooting
+- **Database is locked:** Another process may be reading `hops_v1.db`. Try closing external viewers; SQLite timeouts are kept short to avoid freezing the UI.【F:core/database.py†L10-L18】
+- **Analyzer finds no files:** Confirm your assets are in `~/HOPS_V1/0_Data/` with unique base filenames so duplicate guards do not skip them.【F:core/analyzer.py†L24-L44】
+- **Excess `Nearest_*` results:** Increase the trimming percentage in Settings to widen the allowable ratio tolerance.【F:core/design_pack.py†L27-L64】【F:main.py†L225-L305】
+- **Shortcuts missing:** Ensure `pywin32` is installed on Windows or manually create symlinks on macOS/Linux; the helper handles both scenarios but will log warnings if permissions prevent shortcut creation.【F:core/shortcuts.py†L1-L53】
 
-### Export
-- `4_Export/Bulk` klasöründeki dosyaları SKU bazlı klasörlere (`5_Etsy/<SKU>/`) taşır; mevcut dosyalar üzerine yazılır.
+## Contributing
+1. Fork and clone the repository.
+2. Create a feature branch and implement your change.
+3. Run the workflow end-to-end or add automated coverage for new modules.
+4. Submit a pull request describing the motivation and validation steps.
 
-### Etsy Zip
-- `5_Etsy` içindeki her SKU klasörünü zipleyerek `6_Etsy_Zip/<SKU>.zip` dosyalarını oluşturur.
-
-### Check List
-- `run_design_process_check` fonksiyonu ile `5_Etsy` klasöründe beklenen master dosyalarını doğrular.
-- Eksikler `99_Logs_Reports/missing_files.txt` dosyasına yazılır ve arayüzde tablo olarak gösterilir.
-- Tablo satırları sağ tık menüsü veya `Ctrl+C` ile panoya kopyalanabilir.
-
-### Dashboard
-- Placeholder olarak yer almaktadır; gelecekte metrik ve özet görünümler için kullanılabilir.
-
-## Veritabanı ve Raporlama
-- **SQLite Dosyası:** `99_Logs_Reports/hops_v1.db`
-  - `raw_data`: Görsel metadata ve SKU eşleşmeleri.
-  - `design_pack`: Oran eşleşmeleri ve master çerçeve kodları.
-  - `design_check`: Tasarım klasörlerinde dosya varlığını takip eder.
-  - `master_check`: Master bulk dosyalarının durumunu kaydeder.
-- **Rapor Dosyaları:**
-  - `missing_files.txt`: `Check List` çalışması sonrası eksik master kayıtları.
-- Veritabanı performansı için `journal_mode=WAL` ve `busy_timeout` ayarları etkinleştirilir.
-
-## Konfigürasyon
-- `config.json` içinde saklanan `trimming` yüzdesi, Design Pack aşamasında kabul edilen oran sapmasını belirler.
-- Manuel düzenleme durumunda değer aralığı önerilen `0–15` arasındadır; arayüzde hatalı girişler varsayılan `%8` olarak düzeltilir.
-- Windows'ta masaüstü kısayolları `Desktop` klasörüne `.lnk` olarak oluşturulur; Linux/macOS ortamında sembolik bağlantı veya `.desktop` dosyası üretilir.
-
-## Önerilen İş Akışı
-1. `0_Data` klasörüne yeni görselleri kopyalayın.
-2. Uygulamada **Analyzer**'ı çalıştırın.
-3. Ardından **Design Pack** otomatik tetiklenir (Analyzer butonu bunu zincir halinde yapar).
-4. **Split-Up** ile görselleri oryantasyona göre dağıtın.
-5. **Design** aşamasıyla oran klasörlerine kopyalayın ve kalite kontrolünü yapın.
-6. Master görsellerinizi `3_Master/1_Bulk` klasörüne ekleyin, **Master** butonu ile boyut bazlı taşımayı yapın.
-7. Son tasarımları `4_Export/Bulk` klasörüne yerleştirip **Export** çalıştırın.
-8. Etsy yüklemeleri için **Etsy Zip** aşamasını tamamlayın.
-9. Gönderim öncesi **Check List** ile eksik dosya kontrolünü yapın.
-
-## Sorun Giderme
-- **Veritabanı kilit hataları:** Başka bir süreç `hops_v1.db` dosyasını kullanıyorsa tekrar deneyin; gerekirse Settings ekranından veritabanını sıfırlayın.
-- **Analyzer hiçbir dosya bulmuyor:** Görsellerin `~/HOPS_V1/0_Data` klasöründe olduğundan emin olun ve dosya adlarının benzersiz olduğuna dikkat edin.
-- **Nearest sonuçları fazlaysa:** `trimming` değerini artırarak toleransı yükseltin; `Nearest` kaydı olan SKU'lar `Design` adımında `Unmatched` klasörüne taşınır.
-- **Kısayol oluşturma başarısız:** `pywin32` kurulumunu kontrol edin veya Windows dışındaki sistemlerde manuel kısayol oluşturun.
-
-## Geliştirici Notları
-- Tüm uzun süreli işlemler isteğe bağlı `progress_cb(index, total, message)` parametresiyle kullanıcı arayüzüne durum bildirimi yapar. CLI senaryolarında bu parametre atlanabilir.
-- `core` modülleri `pyproject.toml` altındaki `packages` alanı sayesinde bağımsız paket olarak kullanılabilir; dış betikler `from core import ...` şeklinde içe aktarabilir.
-- Yeni oran tipleri eklemek için `core/design_pack.py` içindeki `RATIOS` ve `MASTER_CODES` sözlükleri güncellenmelidir.
-- Master heuristikleri `core/run_master.py` içinde boyut bazlı koşullarla tanımlanmıştır; ihtiyaca göre ek boyutlar eklenebilir.
-
-## Lisans
-Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır.
+## License
+This project is released under the [MIT License](LICENSE).
