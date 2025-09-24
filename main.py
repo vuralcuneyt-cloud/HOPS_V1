@@ -136,14 +136,26 @@ class MainWindow(QMainWindow):
         btn_designproc.setFocusPolicy(Qt.NoFocus)
         btn_designproc.clicked.connect(self.run_design_process)
 
+        # ----- YENİ: Ayırıcı Çizgi oluşturma fonksiyonu -----
+        def create_separator():
+            line = QFrame()
+            line.setFrameShape(QFrame.HLine)
+            line.setFrameShadow(QFrame.Sunken)
+            # Stil sayfasında arka plan rengini belirliyoruz. Bu bizim çizgimiz olacak.
+            line.setStyleSheet("background-color: #444;")
+            return line
 
         sidebar_layout.addWidget(btn_dashboard)
+        sidebar_layout.addWidget(create_separator())
         sidebar_layout.addWidget(btn_analyzer)
         sidebar_layout.addWidget(btn_splitup)
         sidebar_layout.addWidget(btn_design)
+        sidebar_layout.addWidget(create_separator())
         sidebar_layout.addWidget(btn_master)
         sidebar_layout.addWidget(btn_export)
+        sidebar_layout.addWidget(create_separator())
         sidebar_layout.addWidget(btn_designproc)
+        sidebar_layout.addWidget(create_separator())
         sidebar_layout.addWidget(btn_etsyz)
         sidebar_layout.addStretch()
 
@@ -155,6 +167,8 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.center_content)
 
         self.main_layout.addWidget(content_area)
+        
+        self.run_dashboard()
 
     def clear_center(self):
         while self.center_layout.count():
@@ -774,10 +788,33 @@ class MainWindow(QMainWindow):
 
     def run_dashboard(self):
         self.clear_center()
-        self.status_label.setText("Dashboard ekranı tasarlanacak ...")
-        
+        wrapper = QFrame()
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(20, 20, 20, 20)
+        vbox.setSpacing(10)
 
+        title = QLabel("Dashboard")
+        title.setStyleSheet(
+            "color: #eee; font-size: 18px; font-weight: bold;"
+        )
 
+        subtitle = QLabel(
+            "Özet ekranı geliştirme aşamasında. Bu alanda süreç metrikleri"
+            " ve hızlı aksiyonlar görüntülenecek."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("color: #ccc; font-size: 13px;")
+
+        self.status_label = QLabel("Dashboard ekranı tasarlanacak ...")
+        self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+
+        vbox.addWidget(title)
+        vbox.addWidget(subtitle)
+        vbox.addWidget(self.status_label)
+        vbox.addStretch(1)
+
+        self.center_layout.addWidget(wrapper, alignment=Qt.AlignTop)
 
 
 

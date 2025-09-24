@@ -50,9 +50,9 @@ def process_design_pack(trimming=8, progress_cb=None):
                 target_ratio = w_val / h_val  # örn: 24/36
 
                 if img_ratio < target_ratio:
-                    result_path = f"{name}\\{h_folder}"
-                else:
                     result_path = f"{name}\\{w_folder}"
+                else:
+                    result_path = f"{name}\\{h_folder}"
 
                 master_code = None
                 if name in MASTER_CODES:
