@@ -621,7 +621,7 @@ class MainWindow(QMainWindow):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(5)
 
-        self.status_label = QLabel("DesignProc başlatıldı...")
+        self.status_label = QLabel("Check List başlatıldı...")
         self.status_label.setStyleSheet("color: #0f0; font-size: 13px;")
         self.status_label.setAlignment(Qt.AlignLeft)
 
@@ -667,7 +667,7 @@ class MainWindow(QMainWindow):
         try:
             report_path = run_design_process_check(progress_cb=progress_cb)
             self.progress.setValue(100)
-            self.status_label.setText("✔ DesignProc tamamlandı. Eksikler tabloda listelendi.")
+            self.status_label.setText("✔ Check List tamamlandı. Eksikler tabloda listelendi.")
 
             rows = []
             try:
@@ -690,7 +690,7 @@ class MainWindow(QMainWindow):
                 table.setSelectionBehavior(QAbstractItemView.SelectItems)
                 table.setContextMenuPolicy(Qt.CustomContextMenu)
 
-                table.setHorizontalHeaderLabels(["Design", "Missing File"])
+                table.setHorizontalHeaderLabels(["Design SKU", "Missing File"])
                 table.setRowCount(len(rows))
                 for r, (sku, code) in enumerate(rows):
                     table.setItem(r, 0, QTableWidgetItem(sku))
@@ -769,7 +769,7 @@ class MainWindow(QMainWindow):
                 bottom_layout.addStretch(1)
 
         except Exception as e:
-            self.status_label.setText(f"⚠ DesignProc çalıştırılamadı: {e}")
+            self.status_label.setText(f"⚠ Check List çalıştırılamadı: {e}")
 
 
     def run_dashboard(self):
